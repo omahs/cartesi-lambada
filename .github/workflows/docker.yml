@@ -1,4 +1,4 @@
-name: Build docker containers
+name: Build Docker Containers
 
 on:
   push:
@@ -14,42 +14,30 @@ env:
 jobs:
   build:
     name: Build and Push Docker Image
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-22.04-4
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v2
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v1
+    - name: Setup Depot CLI
+      uses: depot/setup-action@v1
+      env:
+        DEPOT_TOKEN: ${{ secrets.DEPOT_API_TOKEN }}
 
-    - name: Cache Docker layers
-      uses: actions/cache@v2
-      with:
-        path: /tmp/.buildx-cache
-        key: ${{ runner.os }}-buildx-${{ github.sha }}
-        restore-keys: |
-          ${{ runner.os }}-buildx-
-
-    - name: Login to GHCR
-      uses: docker/login-action@v1
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Build Docker image
-      uses: docker/build-push-action@v2
-      with:
-        file: Dockerfile
-        push: false
-        load: true
-        tags: ${{ env.REGISTRY }}/${{ github.repository }}:latest
-        build-args: |
-          RELEASE=--release
-          ARCH=amd64
-          RELEASE_DIR=release
-        cache-from: type=local,src=/tmp/.buildx-cache
+    - name: Build Docker image with Depot (local load)
+      run: |
+        depot build . \
+          --project 2g4vskn96j \
+          --file Dockerfile \
+          --tag ${{ env.REGISTRY }}/${{ github.repository }}:latest \
+          --platform linux/amd64 \
+          --build-arg ARCH=amd64 \
+          --load \
+          --cache-from type=gha,scope=build-amd64 \
+          --cache-to type=gha,mode=max,scope=build-amd64
+      env:
+        DEPOT_TOKEN: ${{ secrets.DEPOT_API_TOKEN }}
 
     - name: Run Docker container
       run: docker run -p 127.0.0.1:3033:3033 -v $PWD/data:/data -e RUN_TESTS=true ${{ env.REGISTRY }}/${{ github.repository }}:latest
@@ -57,20 +45,20 @@ jobs:
     - name: Copy and handle logs
       if: ${{ always() }}
       run: |
-          CONTAINER_ID=$(docker ps -aq --latest --filter "status=exited")
-          if [ -z "$CONTAINER_ID" ]; then
-            echo "No recently exited containers found."
-            exit 1
-          fi
-          docker cp $CONTAINER_ID:/tmp/ /tmp/container_tmp/
-          mkdir -p /tmp/logs
-          find /tmp/container_tmp/ -name "*.log" -exec mv {} /tmp/logs/ \;
-          if [ "$(ls -A /tmp/logs/)" ]; then
-            zip -j /tmp/log-files.zip /tmp/logs/*.log
-            echo "Logs zipped successfully."
-          else
-            echo "No log files found"
-          fi
+        CONTAINER_ID=$(docker ps -aq --latest --filter "status=exited")
+        if [ -z "$CONTAINER_ID" ]; then
+          echo "No recently exited containers found."
+          exit 1
+        fi
+        docker cp $CONTAINER_ID:/tmp/ /tmp/container_tmp/
+        mkdir -p /tmp/logs
+        find /tmp/container_tmp/ -name "*.log" -exec mv {} /tmp/logs/ \;
+        if [ "$(ls -A /tmp/logs/)" ]; then
+          zip -j /tmp/log-files.zip /tmp/logs/*.log
+          echo "Logs zipped successfully."
+        else
+          echo "No log files found"
+        fi
 
     - name: Upload logs
       if: ${{ always() }}
@@ -79,23 +67,17 @@ jobs:
         name: log-files.zip
         path: /tmp/log-files.zip
 
-    - name: Push Docker image to GitHub Packages
+    - name: Push Docker image with Depot
       if: github.ref == 'refs/heads/main'
-      uses: docker/build-push-action@v2
-      with:
-        file: Dockerfile
-        push: true
-        tags: ${{ env.REGISTRY }}/${{ github.repository }}:latest
-        build-args: |
-          RELEASE=--release
-          ARCH=amd64
-          RELEASE_DIR=release
-        cache-from: type=local,src=/tmp/.buildx-cache
-        cache-to: type=local,dest=/tmp/.buildx-cache-new
-
-    - name: Move Docker cache
       run: |
-        rm -rf /tmp/.buildx-cache
-        if [ -d "/tmp/.buildx-cache-new" ]; then
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-        fi
+        depot build . \
+          --project 2g4vskn96j \
+          --file Dockerfile \
+          --tag ${{ env.REGISTRY }}/${{ github.repository }}:latest \
+          --platform linux/amd64 \
+          --build-arg ARCH=amd64 \
+          --cache-from type=gha,scope=build-amd64 \
+          --cache-to type=gha,mode=max,scope=build-amd64 \
+          --push
+      env:
+        DEPOT_TOKEN: ${{ secrets.DEPOT_API_TOKEN }}
