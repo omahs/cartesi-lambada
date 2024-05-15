@@ -62,9 +62,11 @@ jobs:
     - name: Create and Push Docker Manifest
       run: |
         docker manifest create ${{ env.REGISTRY }}/${{ github.repository }}:latest \
-          --amend ${{ env.REGISTRY }}/${{ github.repository }}:amd64-latest \
-          --amend ${{ env.REGISTRY }}/${{ github.repository }}:arm64-latest
+          --amend ${{ env.REGISTRY }}/${{ github.repository }}:amd64-latest@sha256:amd64-digest \
+          --amend ${{ env.REGISTRY }}/${{ github.repository }}:arm64-latest@sha256:arm64-digest
         docker manifest push ${{ env.REGISTRY }}/${{ github.repository }}:latest
+      env:
+        DEPOT_TOKEN: ${{ secrets.DEPOT_API_TOKEN }}
 
   test:
     name: Run Tests on Docker Images
